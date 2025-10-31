@@ -4,11 +4,7 @@ from pymongo.errors import DuplicateKeyError
 from db.mongo import users_collection
 
 def create_user(email: str, password_hash: str):
-    """
-    Insert a new user in MongoDB.
-    Returns dict { "_id": "...", "email": "..." } if success.
-    Returns None if duplicate (same email).
-    """
+
     doc = {
         "email": email,
         "password_hash": password_hash,
@@ -25,9 +21,7 @@ def create_user(email: str, password_hash: str):
         return None
 
 def find_user_by_email(email: str):
-    """
-    Returns full user document (including password_hash) or None.
-    """
+
     user = users_collection.find_one({"email": email})
     if not user:
         return None
@@ -35,9 +29,7 @@ def find_user_by_email(email: str):
     return user
 
 def find_user_by_id(user_id: str):
-    """
-    Helper for future (/me).
-    """
+
     u = users_collection.find_one({"_id": ObjectId(user_id)})
     if not u:
         return None

@@ -4,7 +4,7 @@ from user import router as user_router
 
 app = FastAPI(title="EventPlanner Backend")
 
-# allow frontend (Angular dev server) to call the API
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -12,7 +12,7 @@ app.add_middleware(
         "http://127.0.0.1:4200",
     ],
     allow_credentials=True,
-    allow_methods=["*"],      # important: lets OPTIONS pass
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
