@@ -1,8 +1,118 @@
-from typing import Optional,List
+from __future__ import annotations
 
 from datetime import datetime
+from typing import List, Dict, Any, Optional
+from uuid import uuid4
 
-from db.mongo import events_collection  # same collection you already use
+from .event_models import EventCreate, AttendanceStatus
+
+# Simple in-memory "DB"
+_events_store: List[Dict[str, Any]] = []
+
+
+def create_event(user_id: str, req: EventCreate) -> dict:
+    now = datetime.utcnow()
+    payload = req.model_dump()
+    event_id = uuid4().hex
+
+    attendees_list: List[Dict[str, Any]] = []
+
+    # organizer
+    attendees_list.append({
+        "user_id": user_id,
+        "role": "organizer",
+        "status": "going",
+    })
+
+    # optional invitees
+    invitees = payload.pop("invitees", None) or []
+    for invited_id in invitees:
+        if invited_id != user_id:
+            attendees_list.append({
+                "user_id": invited_id,
+                "role": "attendee",
+                "status": "maybe",
+            })
+
+    doc = {
+        "id": event_id,
+        "organizer_id": user_id,
+        "attendees": attendees_list,
+        "created_at": now,
+        "updated_at": now,
+        **payload,
+    }
+
+    _events_store.append(doc)
+    return doc
+
+
+def list_events_by_organizer(user_id: str) -> List[dict]:
+    return [e for e in _events_store if e.get("organizer_id") == user_id]
+
+
+def list_events_user_invited(user_id: str) -> List[dict]:
+    """
+    Events where user is in attendees but is NOT the organizer
+    """
+    results: List[dict] = []
+    for e in _events_store:
+        if e.get("organizer_id") == user_id:
+            continue
+        attendees = e.get("attendees", [])
+        if any(a.get("user_id") == user_id for a in attendees):
+            results.append(e)
+    return results
+
+
+def get_event_by_id(event_id: str) -> Optional[dict]:
+    for e in _events_store:
+        if e.get("id") == event_id:
+            return e
+    return None
+
+
+def update_attendance(event_id: str, user_id: str, status: AttendanceStatus) -> Optional[dict]:
+    """
+    Update user's attendance status ('going'/'maybe'/'not_going').
+    If user not in attendees → add as attendee.
+    """
+    doc = get_event_by_id(event_id)
+    if not doc:
+        return None
+
+    attendees: List[Dict[str, Any]] = doc.setdefault("attendees", [])
+
+    # existing attendee → just change status
+    for att in attendees:
+        if att.get("user_id") == user_id:
+            att["status"] = status
+            doc["updated_at"] = datetime.utcnow()
+            return doc
+
+    # new attendee
+    attendees.append({
+        "user_id": user_id,
+        "role": "attendee",
+        "status": status,
+    })
+    doc["updated_at"] = datetime.utcnow()
+    return doc
+
+
+def delete_event_for_user(user_id: str, event_id: str) -> bool:
+    for idx, e in enumerate(_events_store):
+        if e.get("id") == event_id and e.get("organizer_id") == user_id:
+            _events_store.pop(idx)
+            return True
+    return False
+
+
+def _get_user_status_in_event(e: dict, user_id: str) -> Optional[str]:
+    for att in e.get("attendees", []):
+        if att.get("user_id") == user_id:
+            return att.get("status")
+    return None
 
 
 def search_events_for_user(
@@ -11,67 +121,36 @@ def search_events_for_user(
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
     role: Optional[str] = None,
-) -> list[dict]:
-    filters = []
+) -> List[dict]:
+    results: List[dict] = []
 
-    # user must be organizer OR attendee
-    filters.append({
-        "$or": [
-            {"organizer_id": user_id},
-            {"attendees.user_id": user_id},
-        ]
-    })
+    for e in _events_store:
+        is_organizer = e.get("organizer_id") == user_id
+        user_status = _get_user_status_in_event(e, user_id)
+        is_related = is_organizer or user_status is not None
+        if not is_related:
+            continue
 
-    # keyword filter (title OR description, case-insensitive)
-    if q:
-        regex = {"$regex": q, "$options": "i"}
-        filters.append({
-            "$or": [
-                {"title": regex},
-                {"description": regex},
-            ]
-        })
+        if q:
+            text = f"{e.get('title', '')} {e.get('description', '')}".lower()
+            if q.lower() not in text:
+                continue
 
-    # date range filter
-    if date_from or date_to:
-        date_cond: dict = {}
-        if date_from:
-            date_cond["$gte"] = date_from
-        if date_to:
-            date_cond["$lte"] = date_to
-        filters.append({"date": date_cond})
+        start = e.get("date")
+        if isinstance(start, datetime):
+            if date_from and start < date_from:
+                continue
+            if date_to and start > date_to:
+                continue
 
-    # role filter
-    if role == "organizer":
-        filters.append({"organizer_id": user_id})
-    elif role == "attendee":
-        filters.append({"attendees.user_id": user_id})
+        if role:
+            if role == "organizer":
+                if not is_organizer:
+                    continue
+            else:  # attendee
+                if not user_status:
+                    continue
 
-    query = {"$and": filters} if filters else {}
+        results.append(e)
 
-    docs = list(events_collection.find(query))
-
-    result: list[dict] = []
-    for doc in docs:
-        # make sure we have an 'id' field as string
-        if "_id" in doc:
-            doc["id"] = str(doc["_id"])
-        result.append(doc)
-
-    return result
-
-
-def list_events_by_organizer(user_id: str) -> List[dict]:
-    """
-    Return all events where this user is the organizer.
-    """
-    docs = list(events_collection.find({"organizer_id": user_id}))
-
-    result: List[dict] = []
-    for doc in docs:
-        # convert MongoDB _id to plain string "id"
-        if "_id" in doc:
-            doc["id"] = str(doc["_id"])
-        result.append(doc)
-
-    return result
+    return results

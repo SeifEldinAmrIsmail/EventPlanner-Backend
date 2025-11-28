@@ -17,12 +17,9 @@ def list_my_events(user_id: str) -> List[EventSummary]:
     result: List[EventSummary] = []
 
     for doc in docs:
-        role = "organizer"
         status_value = None
-
         for att in doc.get("attendees", []):
             if att.get("user_id") == user_id:
-                role = att.get("role", "organizer")
                 status_value = att.get("status")
                 break
 
@@ -32,11 +29,10 @@ def list_my_events(user_id: str) -> List[EventSummary]:
                 title=doc["title"],
                 date=doc["date"],
                 location=doc["location"],
-                role=role,
+                role="organizer",
                 status=status_value,
             )
         )
-
     return result
 
 
@@ -50,37 +46,13 @@ def get_event_detail(user_id: str, event_id: str) -> EventDetail:
     return EventDetail(**doc)
 
 
-def list_invited_events(user_id: str) -> List[EventSummary]:
-    docs = repo.list_events_for_attendee(user_id)
-    result: List[EventSummary] = []
-
-    for doc in docs:
-        # skip events where I’m the organizer (those are in /events/mine)
-        if doc.get("organizer_id") == user_id:
-            continue
-
-        status_value = None
-        for att in doc.get("attendees", []):
-            if att.get("user_id") == user_id:
-                status_value = att.get("status")
-                break
-
-        result.append(
-            EventSummary(
-                id=doc["id"],
-                title=doc["title"],
-                date=doc["date"],
-                location=doc["location"],
-                role="attendee",
-                status=status_value,
-            )
-        )
-
-    return result
+def list_invited_events(user_id: str) -> List[EventDetail]:
+    docs = repo.list_events_user_invited(user_id)
+    return [EventDetail(**doc) for doc in docs]
 
 
 def set_attendance(user_id: str, event_id: str, new_status: AttendanceStatus) -> EventDetail:
-    doc = repo.upsert_attendance(event_id, user_id, new_status)
+    doc = repo.update_attendance(event_id, user_id, new_status)
     if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -90,7 +62,7 @@ def set_attendance(user_id: str, event_id: str, new_status: AttendanceStatus) ->
 
 
 def delete_event_for_user(user_id: str, event_id: str) -> None:
-    deleted = repo.delete_event(event_id, user_id)
+    deleted = repo.delete_event_for_user(user_id, event_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -105,13 +77,6 @@ def search_events(
     date_to: Optional[datetime] = None,
     role: Optional[str] = None,
 ) -> List[EventSummary]:
-    """
-    Search events for this user by:
-    - q         → keyword in title / description
-    - date_from → minimum date
-    - date_to   → maximum date
-    - role      → 'organizer' or 'attendee'
-    """
 
     docs = repo.search_events_for_user(
         user_id=user_id,
@@ -122,17 +87,13 @@ def search_events(
     )
 
     results: List[EventSummary] = []
-
     for doc in docs:
-        # Default: if I created it → organizer, else attendee
         user_role = "organizer" if doc.get("organizer_id") == user_id else "attendee"
         status_value = None
 
         for att in doc.get("attendees", []):
             if att.get("user_id") == user_id:
                 status_value = att.get("status")
-                if att.get("role"):
-                    user_role = att["role"]
                 break
 
         results.append(
@@ -146,5 +107,4 @@ def search_events(
             )
         )
 
-   
     return results
