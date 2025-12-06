@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  backend:
+    build: .
+    container_name: eventplanner-backend
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+    ports:
+      - "8000:8000"
+
+  mongo:
+    build:
+      context: .
+      dockerfile: Dockerfile.mongo
+    container_name: eventplanner-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+
+  frontend:
+    build: ../EventPlanner-Frontend
+    container_name: eventplanner-frontend
+    depends_on:
+      - backend
+    ports:
+      - "4200:80"
+    # no env file needed unless you want extra vars
+
+volumes:
+  mongo-data:
