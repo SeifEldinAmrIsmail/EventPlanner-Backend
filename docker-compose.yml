@@ -10,6 +10,8 @@ services:
       - mongo
     ports:
       - "8000:8000"
+    networks:
+      - eventplanner-net
 
   mongo:
     build:
@@ -21,7 +23,8 @@ services:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db
-
+    networks:
+      - eventplanner-net
 
   frontend:
     build: ../EventPlanner-Frontend
@@ -30,7 +33,14 @@ services:
       - backend
     ports:
       - "4200:80"
-    # no env file needed unless you want extra vars
+    networks:
+      - eventplanner-net
 
 volumes:
   mongo-data:
+
+networks:
+  eventplanner-net:
+    driver: bridge
+    # optional: give it a fixed name instead of auto-generated
+    # name: eventplanner-net
