@@ -1,0 +1,6 @@
+# Custom MongoDB image for EventPlanner (Database Dockerfile)
+FROM mongo:6
+
+ENV MONGO_INITDB_DATABASE=eventplanner
+
+# Port, volumes, etc. will be handled by docker-compose

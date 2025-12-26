@@ -21,7 +21,8 @@ class EventBase(BaseModel):
 
 class EventCreate(EventBase):
     """Request body when creating an event"""
-    pass
+    # so your JSON body can contain "invitees": ["userB_id", ...]
+    invitees: Optional[List[str]] = None
 
 
 class EventSummary(BaseModel):
@@ -39,6 +40,7 @@ class EventDetail(EventBase):
     attendees: List[Attendee]
     created_at: datetime
     updated_at: datetime
-    
+
+
 class AttendanceUpdate(BaseModel):
     status: AttendanceStatus
